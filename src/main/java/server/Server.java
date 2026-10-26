@@ -68,20 +68,18 @@ public class Server {
     private Server() {
     }
 
+    /**
+     * Loads the configuration and initialises every service. Any failure is
+     * propagated so the caller can shut down instead of starting services that
+     * were never (or only partly) initialised.
+     */
     public void init() {
-        try {
-            context = new FileSystemXmlApplicationContext(config);
-            list = (ServiceList) context.getBean("ServiceList");
+        context = new FileSystemXmlApplicationContext(config);
+        list = (ServiceList) context.getBean("ServiceList");
 
-
-            for (Service s : list.getServices()) {
-                s.init();
-            }
-        } catch (Exception e) {
-
-            e.printStackTrace();
+        for (Service s : list.getServices()) {
+            s.init();
         }
-
     }
 
     public void start() {
@@ -92,6 +90,9 @@ public class Server {
     }
 
     public void stop() {
+        if (list == null) {
+            return;
+        }
         log.info("Stopping Services");
 
         for (Service s : list.getServices()) {
@@ -113,11 +114,18 @@ public class Server {
     }
 
     public void destroy() {
-        List<Service> services = new ArrayList<Service>(list.getServices());
+        if (list != null) {
+            List<Service> services = new ArrayList<Service>(list.getServices());
 
-        for (int i = services.size() - 1; i > 0; i--) {
-            Service service = services.get(i);
-            service.destroy();
+            // Destroy in reverse order, including the first service (index 0).
+            for (int i = services.size() - 1; i >= 0; i--) {
+                Service service = services.get(i);
+                try {
+                    service.destroy();
+                } catch (RuntimeException e) {
+                    log.error("Failed to destroy service " + service.getName(), e);
+                }
+            }
         }
 
         synchronized (this) {
@@ -139,6 +147,10 @@ public class Server {
 
 
     public static void main(String[] args) {
+        if (args.length < 1) {
+            System.err.println("Usage: server.Server <spring-config.xml>");
+            System.exit(2);
+        }
         Server s = Server.getInstance();
         s.setConfig(args[0]);
         Runtime.getRuntime().addShutdownHook(new Thread(new ServerShutDownHook(s)));
